@@ -1,78 +1,80 @@
-# Better RPC Connection for Solana
+# Better-RPC-Connection: one shared Solana RPC connection
 
-This project provides an efficient way to manage RPC connections to the Solana blockchain using a singleton pattern. This ensures that a single connection instance is reused throughout the application, improving performance and resource management.
+A tiny TypeScript pattern for Solana apps: create the `@solana/web3.js` `Connection` once and reuse it everywhere, instead of calling `new Connection(...)` in every function.
 
-## The Problem with Multiple Connections
+What you'll find here:
 
-When building applications on Solana, developers frequently need to interact with the blockchain via an RPC (Remote Procedure Call) connection. A common but inefficient practice is to create a new `Connection` object every time an interaction is needed.
+- a singleton `RpcConnection` class with a private constructor
+- a single place to set the RPC endpoint and default commitment
+- an example that fetches the latest blockhash through the shared connection
 
-Creating a new connection for each request can lead to several issues:
-- **Performance Overhead**: Establishing a new connection involves a network handshake and resource allocation, which adds latency to each request.
-- **Resource Consumption**: Each connection consumes memory and network resources on both the client and the RPC node. Creating numerous connections can strain the RPC provider's infrastructure, potentially leading to rate-limiting or degraded performance.
-- **Inconsistent State**: If different parts of an application use different connection objects, they might have slightly different configurations or be connected to different RPC nodes (in a load-balanced setup), leading to inconsistent views of the blockchain state.
+## Why share one connection
 
-## The Singleton Solution
+It's common to see `new Connection(url)` inside every handler or helper. That works, but:
 
-This repository implements a `RpcConnection` class that follows the singleton design pattern. A singleton ensures that only one instance of a class is ever created.
+- **Config drifts.** Each call site picks its own endpoint and commitment, and they stop matching.
+- **Subscriptions multiply.** Each `Connection` manages its own WebSocket for `onAccountChange`, `onLogs` and similar, so many instances can mean many sockets to your RPC provider.
+- **Swapping providers is painful.** Moving to a paid RPC, or adding a fallback, means hunting down every `new Connection`.
 
-The `RpcConnection.getConnection()` method checks if a `Connection` object already exists.
-- If it does, it returns the existing instance.
-- If it doesn't, it creates a new one, stores it for future use, and then returns it.
+With one shared instance, the endpoint and commitment live in one file and every part of the app sees the same configuration.
 
-## Benefits of this Approach
+## How it works
 
-Using a singleton for your Solana RPC connection provides several benefits:
+```typescript
+export class RpcConnection {
+  static _connection: Connection;
+  static _commitment: Commitment = "confirmed";
 
-- **Improved Performance**: By reusing a single connection, you avoid the overhead of creating new connections for each request, resulting in faster interactions with the blockchain.
-- **Efficient Resource Management**: It reduces the memory and network footprint of your application, leading to better overall performance and stability.
-- **Consistency**: All parts of your application will use the same connection instance, ensuring a consistent configuration (e.g., commitment level) and view of the blockchain.
-- **Simplified Connection Management**: You no longer need to pass connection objects around your application. You can simply call `RpcConnection.getConnection()` wherever you need it.
+  private constructor() {}
 
-## Installation
+  public static getConnection(): Connection {
+    if (this._connection === undefined) {
+      this._connection = new Connection(clusterApiUrl("mainnet-beta"), this._commitment);
+    }
+    return this._connection;
+  }
+}
+```
 
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/princedotrs/Better-RPC-Connection.git
-    cd Better-RPC-Connection
-    ```
+The first call creates the connection; every later call returns the same object. Change the URL in [`src/RpcConnection.ts`](src/RpcConnection.ts) to point at your own RPC.
 
-2.  Install the dependencies:
-    ```bash
-    npm install
-    ```
-
-## Usage
-
-The `RpcConnection` class is straightforward to use. Simply import it and call the static `getConnection()` method to get the connection instance.
+Use it anywhere:
 
 ```typescript
 import { RpcConnection } from "./RpcConnection";
 
 const connection = RpcConnection.getConnection();
-
-// You can now use the connection object to interact with the Solana blockchain
-(async () => {
-    const version = await connection.getVersion();
-    console.log("Connection to cluster is successful:", version);
-})();
+const { blockhash } = await connection.getLatestBlockhash();
 ```
 
-The default commitment level is set to `"confirmed"`.
+## Run it
 
-## Running the Example
+Prerequisites: Node.js 18+.
 
-This repository includes an example file `src/index.ts` that demonstrates how to use the `RpcConnection` class.
+```bash
+git clone https://github.com/princedotrs/Better-RPC-Connection.git
+cd Better-RPC-Connection
+npm install
+npm run compile
+node dist/index.js
+```
 
-To run the example:
+It prints the RPC endpoint, the commitment level and the latest blockhash.
 
-1.  Compile the TypeScript code:
-    ```bash
-    npm run compile
-    ```
+## Project layout
 
-2.  Run the compiled JavaScript code:
-    ```bash
-    node dist/index.js
-    ```
+```
+src/
+├── RpcConnection.ts   # the singleton
+└── index.ts           # example usage
+```
 
-You should see output showing that a connection has been established and the latest blockhash has been fetched.
+## Ideas to extend it
+
+- Read the endpoint from an environment variable
+- Keep a list of endpoints and fail over when one errors or rate-limits
+- Add a second shared connection for a different cluster (devnet, mainnet)
+
+## License
+
+MIT
