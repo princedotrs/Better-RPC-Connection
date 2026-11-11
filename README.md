@@ -32,7 +32,7 @@ Using a singleton for your Solana RPC connection provides several benefits:
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/prince981620/Better-RPC-Connection.git
+    git clone https://github.com/princedotrs/Better-RPC-Connection.git
     cd Better-RPC-Connection
     ```
 
